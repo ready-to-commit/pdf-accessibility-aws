@@ -9,11 +9,20 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+
     steps:
-      - name: Checkout Code
+      - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Configure AWS Credentials
+      - name: Debug ENV
+        run: |
+          echo "AWS_REGION=$AWS_REGION"
+          echo "AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID"
+
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -28,7 +37,7 @@ jobs:
 
       - name: Build Docker Image
         run: |
-          docker buildx build --no-cache --platform linux/amd64 --output type=docker -t pdf-accessibility-lambda:v3 .
+          docker build -t pdf-accessibility-lambda:v3 .
 
       - name: Tag Image
         run: |
