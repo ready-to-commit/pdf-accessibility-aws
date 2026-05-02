@@ -47,7 +47,7 @@
 
         <!-- Download Section -->
         <div class="text-center">
-            <button class="btn btn-success" onclick="downloadCSV()">Download Latest CSV Report</button>
+            <button class="btn btn-success" onclick="downloadCSV()">Download Latest CSV</button>
         </div>
 
     </div>
@@ -109,18 +109,19 @@
    async function downloadCSV() {
         try {
         const response = await fetch("https://fq3dja3f35.execute-api.ap-south-1.amazonaws.com/dev/download-report");
-        const blob = await response.blob();
+        const data = await response.json();
 
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "report.csv";
-    a.click();
+        if (data.downloadUrl) {
+            window.open(data.downloadUrl, "_blank");
+        } else {
+            alert("No report available");
+        }
 
     } catch (error) {
-        console.error("Download failed", error);
+        console.error(error);
+        alert("Failed to download report");
     }
-    }
+}
 </script>
 
 </body>
