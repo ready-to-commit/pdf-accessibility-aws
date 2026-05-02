@@ -4,14 +4,11 @@ import os
 import csv
 import datetime
 import zipfile
-import shutil
 from PyPDF2 import PdfReader
 
 s3 = boto3.client('s3')
 
 OUTPUT_BUCKET = "pdf-accessibility-level-1-check-output"
-timestamp = datetime.datetime.now().strftime("%Y%m%d")
-CSV_KEY = f"reports/csv/report_{timestamp}.csv"
 
 
 def check_pdf(file_path):
@@ -32,9 +29,17 @@ def check_pdf(file_path):
 
         return title, language, tagged, status
 
-    except Exception as e:
-        print(f"Error reading PDF: {e}")
+    except Exception:
         return "Error", "Error", "No", "Failed"
+
+
+def create_csv(results, csv_path):
+    with open(csv_path, "w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["File Name", "Title", "Language", "Tagged", "Status"])
+
+        for row in results:
+            writer.writerow(row)
 
 
 def lambda_handler(event, context):
@@ -48,38 +53,35 @@ def lambda_handler(event, context):
     file_path = f"/tmp/{os.path.basename(key)}"
     s3.download_file(bucket, key, file_path)
 
-    print(f"Downloaded file: {file_path}")
-
     files_to_process = []
 
     # Handle ZIP
-    if key.endswith(".zip"):
+    if key.lower().endswith(".zip"):
         extract_path = "/tmp/extracted"
-
-        if os.path.exists(extract_path):
-            shutil.rmtree(extract_path)
-
-        os.makedirs(extract_path)
+        os.makedirs(extract_path, exist_ok=True)
 
         with zipfile.ZipFile(file_path, 'r') as zip_ref:
             zip_ref.extractall(extract_path)
 
         for root, dirs, files in os.walk(extract_path):
             for file in files:
-                if file.endswith(".pdf"):
+                if file.lower().endswith(".pdf"):
                     files_to_process.append(os.path.join(root, file))
-
     else:
         files_to_process.append(file_path)
+
+    results = []
 
     # Process PDFs
     for pdf_file in files_to_process:
         filename = os.path.basename(pdf_file)
-        print(f"Processing: {filename}")
 
         title, language, tagged, status = check_pdf(pdf_file)
 
-        result = {
+        # Store JSON per file
+        json_key = f"reports/json/{filename}.json"
+
+        result_json = {
             "file": filename,
             "title": title,
             "language": language,
@@ -87,20 +89,34 @@ def lambda_handler(event, context):
             "status": status
         }
 
-        # Save JSON
-        json_key = f"reports/json/{filename}.json"
-
         s3.put_object(
             Bucket=OUTPUT_BUCKET,
             Key=json_key,
-            Body=json.dumps(result),
+            Body=json.dumps(result_json),
             ContentType="application/json"
         )
 
-        print(f"JSON uploaded: {json_key}")
+        # Collect for CSV
+        results.append([filename, title, language, tagged, status])
 
+    # Create ONE CSV per upload event
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_filename = f"report_{timestamp}.csv"
+    local_csv_path = f"/tmp/{csv_filename}"
+
+    create_csv(results, local_csv_path)
+
+    # Upload CSV
+    s3.upload_file(
+        local_csv_path,
+        OUTPUT_BUCKET,
+        f"reports/csv/{csv_filename}"
+    )
 
     return {
         "statusCode": 200,
-        "body": json.dumps("Processed successfully")
+        "body": json.dumps({
+            "message": "Processed successfully",
+            "csv_file": csv_filename
+        })
     }
